@@ -1,0 +1,14 @@
+[project]
+name = "industrial-iot-backend"
+version = "0.1.0"
+description = "Backend API for an industrial IoT monitoring platform"
+readme = "README.md"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "fastapi>=0.141.1",
+    "paho-mqtt>=2.1.0",
+    "psycopg[binary]>=3.3.5",
+    "pydantic-settings>=2.15.0",
+    "uvicorn>=0.53.0",
+    "websockets>=17.1",
+]
