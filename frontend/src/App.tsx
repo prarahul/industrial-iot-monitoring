@@ -56,9 +56,28 @@ interface EquipmentHealth {
   reason: string;
 }
 
+interface EquipmentEvent {
+  id: number;
+  equipment_id: string;
+  event_type: string;
+  event_time: string;
+  severity: "INFO" | "WARNING" | "CRITICAL";
+  source: string;
+  message: string;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+}
+
 interface WebSocketMessage {
   type: string;
   data?: Equipment;
+}
+
+interface SystemHealth {
+  status: string;
+  database: string;
+  mqtt: string;
+  timestamp: string;
 }
 
 const API_BASE_URL = "http://127.0.0.1:8000";
@@ -83,6 +102,17 @@ function App() {
   const [alerts, setAlerts] =
     useState<Alert[]>([]);
 
+  const [events, setEvents] =
+    useState<EquipmentEvent[]>([]);
+
+  const [eventSeverityFilter, setEventSeverityFilter] =
+    useState<
+      "ALL" | "INFO" | "WARNING" | "CRITICAL"
+    >("ALL");
+
+  const [systemHealthy, setSystemHealthy] =
+    useState(false);
+
   const [error, setError] =
     useState<string | null>(null);
 
@@ -92,109 +122,170 @@ function App() {
   const reconnectTimeoutRef =
     useRef<number | null>(null);
 
+  const selectedEquipmentIdRef =
+    useRef<string>("");
+
   /*
    * =========================================================
-   * INITIAL TELEMETRY + FLEET HEALTH
-   *
-   * REST is used here for initial dashboard loading.
-   * Live telemetry is subsequently handled by WebSocket.
+   * KEEP SELECTED EQUIPMENT REF IN SYNC
    * =========================================================
    */
 
   useEffect(() => {
-    const fetchInitialDashboardData = async () => {
-      try {
-        const [
-          telemetryResponse,
-          fleetHealthResponse,
-        ] = await Promise.all([
-          axios.get<Equipment[]>(
-            `${API_BASE_URL}/api/telemetry/latest`
-          ),
+    selectedEquipmentIdRef.current =
+      selectedEquipmentId;
+  }, [selectedEquipmentId]);
 
-          axios.get<EquipmentHealth[]>(
-            `${API_BASE_URL}/api/health/fleet`
-          ),
-        ]);
+  /*
+   * =========================================================
+   * INITIAL TELEMETRY + FLEET HEALTH
+   * =========================================================
+   */
 
-        const telemetry =
-          telemetryResponse.data;
+  useEffect(() => {
+    const fetchInitialDashboardData =
+      async () => {
+        try {
+          const [
+            telemetryResponse,
+            fleetHealthResponse,
+          ] = await Promise.all([
+            axios.get<Equipment[]>(
+              `${API_BASE_URL}/api/telemetry/latest`
+            ),
 
-        const fleetHealthData =
-          fleetHealthResponse.data;
+            axios.get<EquipmentHealth[]>(
+              `${API_BASE_URL}/api/health/fleet`
+            ),
+          ]);
 
-        const equipmentMap = new Map<
-          string,
-          Equipment
-        >();
+          const telemetry =
+            telemetryResponse.data;
 
-        telemetry.forEach((item) => {
-          const existing =
-            equipmentMap.get(
-              item.equipment_id
+          const fleetHealthData =
+            fleetHealthResponse.data;
+
+          const equipmentMap = new Map<
+            string,
+            Equipment
+          >();
+
+          telemetry.forEach((item) => {
+            const existing =
+              equipmentMap.get(
+                item.equipment_id
+              );
+
+            if (
+              !existing ||
+              new Date(item.timestamp).getTime() >
+                new Date(
+                  existing.timestamp
+                ).getTime()
+            ) {
+              equipmentMap.set(
+                item.equipment_id,
+                item
+              );
+            }
+          });
+
+          const latestEquipment =
+            Array.from(
+              equipmentMap.values()
+            ).sort((a, b) =>
+              a.equipment_id.localeCompare(
+                b.equipment_id
+              )
             );
+
+          setEquipmentList(
+            latestEquipment
+          );
+
+          setFleetHealth(
+            fleetHealthData
+          );
 
           if (
-            !existing ||
-            new Date(item.timestamp).getTime() >
-              new Date(
-                existing.timestamp
-              ).getTime()
+            !selectedEquipmentId &&
+            latestEquipment.length > 0
           ) {
-            equipmentMap.set(
-              item.equipment_id,
-              item
+            setSelectedEquipmentId(
+              latestEquipment[0]
+                .equipment_id
             );
           }
-        });
 
-        const latestEquipment =
-          Array.from(
-            equipmentMap.values()
-          ).sort((a, b) =>
-            a.equipment_id.localeCompare(
-              b.equipment_id
-            )
+          setError(null);
+        } catch (requestError) {
+          console.error(
+            requestError
           );
 
-        setEquipmentList(
-          latestEquipment
-        );
-
-        setFleetHealth(
-          fleetHealthData
-        );
-
-        if (
-          !selectedEquipmentId &&
-          latestEquipment.length > 0
-        ) {
-          setSelectedEquipmentId(
-            latestEquipment[0]
-              .equipment_id
+          setError(
+            "Unable to connect to the monitoring backend."
           );
         }
-
-        setError(null);
-      } catch (requestError) {
-        console.error(
-          requestError
-        );
-
-        setError(
-          "Unable to connect to the monitoring backend."
-        );
-      }
-    };
+      };
 
     fetchInitialDashboardData();
-  }, [selectedEquipmentId]);
+  }, []);
+
+  /*
+   * =========================================================
+   * SYSTEM HEALTH
+   *
+   * Backend endpoint:
+   * GET /api/system/health
+   * =========================================================
+   */
+
+  useEffect(() => {
+    const checkSystemHealth =
+      async () => {
+        try {
+          const response =
+            await axios.get<SystemHealth>(
+              `${API_BASE_URL}/api/system/health`
+            );
+
+          const backendHealthy =
+            response.data.status ===
+              "healthy" &&
+            response.data.database ===
+              "connected";
+
+          setSystemHealthy(
+            backendHealthy
+          );
+        } catch (requestError) {
+          console.error(
+            "System health error:",
+            requestError
+          );
+
+          setSystemHealthy(false);
+        }
+      };
+
+    checkSystemHealth();
+
+    const interval =
+      setInterval(
+        checkSystemHealth,
+        5000
+      );
+
+    return () =>
+      clearInterval(interval);
+  }, []);
 
   /*
    * =========================================================
    * MQTT → WEBSOCKET → REACT
    *
-   * WebSocket is now the live telemetry channel.
+   * WebSocket is the live telemetry channel.
    * =========================================================
    */
 
@@ -246,7 +337,7 @@ function App() {
             message.data;
 
           /*
-           * Update the latest telemetry
+           * Update latest telemetry
            * for the corresponding crane.
            */
 
@@ -285,16 +376,16 @@ function App() {
           );
 
           /*
-           * Add the telemetry point
-           * to the selected equipment
-           * chart in real time.
+           * Add telemetry point
+           * to the currently selected
+           * equipment chart.
            */
 
           setHistory(
             (currentHistory) => {
               if (
                 telemetry.equipment_id !==
-                selectedEquipmentId
+                selectedEquipmentIdRef.current
               ) {
                 return currentHistory;
               }
@@ -303,11 +394,6 @@ function App() {
                 ...currentHistory,
                 telemetry,
               ];
-
-              /*
-               * Keep the most recent
-               * 100 points in memory.
-               */
 
               return updatedHistory
                 .sort(
@@ -331,10 +417,12 @@ function App() {
       };
 
       websocket.onerror = () => {
-  if (isMounted) {
-    setWebSocketConnected(false);
-  }
-};
+        if (isMounted) {
+          setWebSocketConnected(
+            false
+          );
+        }
+      };
 
       websocket.onclose = () => {
         console.log(
@@ -345,11 +433,6 @@ function App() {
           setWebSocketConnected(
             false
           );
-
-          /*
-           * Reconnect automatically
-           * after 2 seconds.
-           */
 
           reconnectTimeoutRef.current =
             window.setTimeout(
@@ -371,9 +454,16 @@ function App() {
         window.clearTimeout(
           reconnectTimeoutRef.current
         );
+
+        reconnectTimeoutRef.current =
+          null;
       }
 
-      if (websocket) {
+      if (
+        websocket &&
+        websocket.readyState ===
+          WebSocket.OPEN
+      ) {
         websocket.close();
       }
     };
@@ -382,32 +472,30 @@ function App() {
   /*
    * =========================================================
    * FLEET HEALTH
-   *
-   * Health remains REST-based because the backend
-   * health endpoint calculates the current condition.
    * =========================================================
    */
 
   useEffect(() => {
-    const fetchFleetHealth = async () => {
-      try {
-        const response =
-          await axios.get<
-            EquipmentHealth[]
-          >(
-            `${API_BASE_URL}/api/health/fleet`
-          );
+    const fetchFleetHealth =
+      async () => {
+        try {
+          const response =
+            await axios.get<
+              EquipmentHealth[]
+            >(
+              `${API_BASE_URL}/api/health/fleet`
+            );
 
-        setFleetHealth(
-          response.data
-        );
-      } catch (requestError) {
-        console.error(
-          "Fleet health error:",
-          requestError
-        );
-      }
-    };
+          setFleetHealth(
+            response.data
+          );
+        } catch (requestError) {
+          console.error(
+            "Fleet health error:",
+            requestError
+          );
+        }
+      };
 
     fetchFleetHealth();
 
@@ -490,10 +578,65 @@ function App() {
 
   /*
    * =========================================================
+   * INDUSTRIAL EVENT TIMELINE
+   * =========================================================
+   */
+
+  useEffect(() => {
+    const fetchEvents = async () => {
+      try {
+        const response =
+          await axios.get<{
+            count: number;
+            events: EquipmentEvent[];
+          }>(
+            `${API_BASE_URL}/api/events`,
+            {
+              params: {
+                equipment_id:
+                  selectedEquipmentId ||
+                  undefined,
+
+                severity:
+                  eventSeverityFilter ===
+                  "ALL"
+                    ? undefined
+                    : eventSeverityFilter,
+
+                limit: 50,
+              },
+            }
+          );
+
+        setEvents(
+          response.data.events
+        );
+      } catch (requestError) {
+        console.error(
+          "Events error:",
+          requestError
+        );
+      }
+    };
+
+    fetchEvents();
+
+    const interval =
+      setInterval(
+        fetchEvents,
+        2000
+      );
+
+    return () =>
+      clearInterval(interval);
+  }, [
+    selectedEquipmentId,
+    eventSeverityFilter,
+  ]);
+
+  /*
+   * =========================================================
    * SELECTED EQUIPMENT HISTORY
-   *
-   * REST provides the initial historical chart.
-   * WebSocket then appends new points.
    * =========================================================
    */
 
@@ -536,6 +679,7 @@ function App() {
           );
         } catch (requestError) {
           console.error(
+            "History error:",
             requestError
           );
 
@@ -713,15 +857,15 @@ function App() {
             className="status-dot"
             style={{
               background:
-                webSocketConnected
+                systemHealthy && webSocketConnected
                   ? "#22c55e"
                   : "#ef4444",
             }}
           ></span>
 
-          {webSocketConnected
+          {systemHealthy && webSocketConnected
             ? "SYSTEM ONLINE"
-            : "RECONNECTING..."}
+            : "SYSTEM DEGRADED"}
 
         </div>
 
@@ -1488,6 +1632,294 @@ function App() {
 
 
         {/* ===================================================
+            INDUSTRIAL EVENT TIMELINE
+        ==================================================== */}
+
+        <section className="alerts-section">
+
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+
+            <div>
+
+              <h2 className="text-lg font-semibold text-slate-100">
+                Industrial Event Timeline
+              </h2>
+
+              <p className="mt-1 text-sm text-slate-400">
+                Equipment state changes and operational events
+              </p>
+
+            </div>
+
+
+            <div className="flex flex-wrap gap-2">
+
+              {(
+                [
+                  "ALL",
+                  "CRITICAL",
+                  "WARNING",
+                  "INFO",
+                ] as const
+              ).map((severity) => (
+
+                <button
+                  key={severity}
+                  type="button"
+                  onClick={() =>
+                    setEventSeverityFilter(
+                      severity
+                    )
+                  }
+                  className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
+                    eventSeverityFilter ===
+                    severity
+                      ? "border-cyan-400 bg-cyan-400/10 text-cyan-300"
+                      : "border-slate-700 bg-slate-900 text-slate-400 hover:border-slate-600 hover:text-slate-200"
+                  }`}
+                >
+                  {severity}
+                </button>
+
+              ))}
+
+            </div>
+
+          </div>
+
+
+          {events.length === 0 ? (
+
+            <div className="no-alerts">
+
+              <span className="status-dot"></span>
+
+              <div>
+
+                <strong>
+                  No Events Recorded
+                </strong>
+
+                <p>
+                  No equipment events have been
+                  recorded for this equipment.
+                </p>
+
+              </div>
+
+            </div>
+
+          ) : (
+
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: "10px",
+                maxHeight: "420px",
+                overflowY: "auto",
+                paddingRight: "4px",
+              }}
+            >
+
+              {events.map((event) => {
+
+                const severityColor =
+                  event.severity ===
+                  "CRITICAL"
+                    ? "#fca5a5"
+                    : event.severity ===
+                      "WARNING"
+                    ? "#fde68a"
+                    : "#93c5fd";
+
+                const eventLabel =
+                  event.event_type.replaceAll(
+                    "_",
+                    " "
+                  );
+
+                return (
+
+                  <div
+                    key={event.id}
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns:
+                        "10px 1fr auto",
+                      gap: "14px",
+                      alignItems:
+                        "start",
+                      padding:
+                        "15px 16px",
+                      border:
+                        "1px solid #1e293b",
+                      borderRadius:
+                        "10px",
+                      background:
+                        "#0f172a",
+                    }}
+                  >
+
+                    <span
+                      style={{
+                        width: "8px",
+                        height: "8px",
+                        borderRadius:
+                          "50%",
+                        background:
+                          severityColor,
+                        boxShadow:
+                          `0 0 10px ${severityColor}66`,
+                        marginTop:
+                          "6px",
+                      }}
+                    />
+
+
+                    <div
+                      style={{
+                        minWidth: 0,
+                      }}
+                    >
+
+                      <div
+                        style={{
+                          display:
+                            "flex",
+                          alignItems:
+                            "center",
+                          gap: "10px",
+                          flexWrap:
+                            "wrap",
+                          marginBottom:
+                            "5px",
+                        }}
+                      >
+
+                        <strong
+                          style={{
+                            color:
+                              "#f8fafc",
+                            fontSize:
+                              "13px",
+                            textTransform:
+                              "uppercase",
+                          }}
+                        >
+                          {eventLabel}
+                        </strong>
+
+                        <span
+                          style={{
+                            color:
+                              severityColor,
+                            fontSize:
+                              "9px",
+                            fontWeight:
+                              700,
+                            letterSpacing:
+                              "0.6px",
+                          }}
+                        >
+                          {event.severity}
+                        </span>
+
+                      </div>
+
+
+                      <p
+                        style={{
+                          margin: 0,
+                          color:
+                            "#94a3b8",
+                          fontSize:
+                            "12px",
+                          lineHeight:
+                            "1.5",
+                        }}
+                      >
+                        {event.message}
+                      </p>
+
+
+                      <div
+                        style={{
+                          display:
+                            "flex",
+                          gap: "14px",
+                          flexWrap:
+                            "wrap",
+                          marginTop:
+                            "8px",
+                          color:
+                            "#64748b",
+                          fontSize:
+                            "10px",
+                        }}
+                      >
+
+                        <span>
+                          Equipment:{" "}
+                          <strong
+                            style={{
+                              color:
+                                "#cbd5e1",
+                            }}
+                          >
+                            {
+                              event.equipment_id
+                            }
+                          </strong>
+                        </span>
+
+                        <span>
+                          Source:{" "}
+                          <strong
+                            style={{
+                              color:
+                                "#cbd5e1",
+                            }}
+                          >
+                            {event.source}
+                          </strong>
+                        </span>
+
+                      </div>
+
+                    </div>
+
+
+                    <span
+                      style={{
+                        color:
+                          "#64748b",
+                        fontSize:
+                          "10px",
+                        whiteSpace:
+                          "nowrap",
+                        textAlign:
+                          "right",
+                      }}
+                    >
+                      {new Date(
+                        event.event_time
+                      ).toLocaleString()}
+                    </span>
+
+                  </div>
+
+                );
+              })}
+
+            </div>
+
+          )}
+
+        </section>
+
+
+        {/* ===================================================
             TEMPERATURE / VIBRATION
         ==================================================== */}
 
@@ -1813,9 +2245,7 @@ function MetricCard({
   unit,
   icon,
 }: MetricCardProps) {
-
   return (
-
     <div className="metric-card">
 
       <div className="metric-icon">
@@ -1841,7 +2271,6 @@ function MetricCard({
       </div>
 
     </div>
-
   );
 }
 
@@ -1859,9 +2288,7 @@ function FleetMetric({
   label,
   value,
 }: FleetMetricProps) {
-
   return (
-
     <div
       style={{
         display:
@@ -1901,7 +2328,6 @@ function FleetMetric({
       </strong>
 
     </div>
-
   );
 }
 

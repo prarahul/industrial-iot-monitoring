@@ -9,6 +9,9 @@ from app.api.equipment import router as equipment_router
 from app.api.health import router as health_router
 from app.api.fleet_health import router as fleet_health_router
 from app.api.telemetry import router as telemetry_router
+from app.api.events import router as events_router
+from app.api.system import router as system_router
+
 from app.services.mqtt_service import (
     set_event_loop,
     start_mqtt,
@@ -76,6 +79,8 @@ app.include_router(equipment_router)
 app.include_router(alerts_router)
 app.include_router(health_router)
 app.include_router(fleet_health_router)
+app.include_router(events_router)
+app.include_router(system_router)
 
 
 # =========================================================

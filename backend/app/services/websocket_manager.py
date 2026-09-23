@@ -1,4 +1,9 @@
+import logging
+
 from fastapi import WebSocket
+
+
+logger = logging.getLogger(__name__)
 
 
 class ConnectionManager:
@@ -15,10 +20,9 @@ class ConnectionManager:
             websocket
         )
 
-        print(
-            f"WebSocket client connected. "
-            f"Active clients: "
-            f"{len(self.active_connections)}"
+        logger.warning(
+            "WEBSOCKET CONNECTED | active_clients=%s",
+            len(self.active_connections),
         )
 
     def disconnect(
@@ -30,16 +34,20 @@ class ConnectionManager:
                 websocket
             )
 
-        print(
-            f"WebSocket client disconnected. "
-            f"Active clients: "
-            f"{len(self.active_connections)}"
+        logger.warning(
+            "WEBSOCKET DISCONNECTED | active_clients=%s",
+            len(self.active_connections),
         )
 
     async def broadcast(
         self,
         message: dict,
     ):
+        logger.warning(
+            "WEBSOCKET BROADCAST | active_clients=%s",
+            len(self.active_connections),
+        )
+
         disconnected = []
 
         for websocket in self.active_connections:
@@ -47,7 +55,17 @@ class ConnectionManager:
                 await websocket.send_json(
                     message
                 )
-            except Exception:
+
+                logger.warning(
+                    "WEBSOCKET SEND SUCCESS"
+                )
+
+            except Exception as error:
+                logger.exception(
+                    "WEBSOCKET SEND FAILED: %s",
+                    error,
+                )
+
                 disconnected.append(
                     websocket
                 )

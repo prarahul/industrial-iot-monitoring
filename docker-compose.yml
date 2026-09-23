@@ -28,21 +28,28 @@ services:
     restart: unless-stopped
     ports:
       - "8000:8000"
-
     environment:
       MQTT_BROKER: mqtt
       MQTT_PORT: 1883
       MQTT_TOPIC: industrial/equipment/telemetry
-
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
       POSTGRES_DB: industrial_iot
       POSTGRES_USER: iot_user
       POSTGRES_PASSWORD: iot_password
-
     depends_on:
       - mqtt
       - postgres
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: industrial-iot-frontend
+    restart: unless-stopped
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
 
 volumes:
   postgres_data:

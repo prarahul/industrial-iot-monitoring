@@ -27,14 +27,16 @@ def set_event_loop(loop):
 # =========================================================
 # WEBSOCKET BROADCAST
 # =========================================================
-
 def broadcast_telemetry(payload: dict):
     if event_loop is None:
-        print("WebSocket event loop not available.")
+        print(
+            "WebSocket event loop not available.",
+            flush=True,
+        )
         return
 
     try:
-        asyncio.run_coroutine_threadsafe(
+        future = asyncio.run_coroutine_threadsafe(
             manager.broadcast(
                 {
                     "type": "telemetry",
@@ -44,11 +46,25 @@ def broadcast_telemetry(payload: dict):
             event_loop,
         )
 
-    except Exception as error:
-        print(
-            f"WebSocket broadcast error: {error}"
+        def handle_broadcast_result(completed_future):
+            try:
+                completed_future.result()
+
+            except Exception as error:
+                print(
+                    f"WebSocket broadcast coroutine error: {error}",
+                    flush=True,
+                )
+
+        future.add_done_callback(
+            handle_broadcast_result
         )
 
+    except Exception as error:
+        print(
+            f"WebSocket broadcast scheduling error: {error}",
+            flush=True,
+        )
 
 # =========================================================
 # EQUIPMENT EVENT PROCESSING

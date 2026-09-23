@@ -1,5 +1,7 @@
 from typing import Any
 
+from psycopg.types.json import Jsonb
+
 from app.services.database import get_connection
 
 
@@ -44,7 +46,7 @@ def create_event(
                     severity,
                     source,
                     message,
-                    metadata,
+                    Jsonb(metadata) if metadata is not None else None,
                 ),
             )
 
